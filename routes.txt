@@ -1,0 +1,451 @@
+/////////////////// addNewsRoutes.js
+
+const express = require('express');
+const router = express.Router();
+const News = require('../models/newsModel');
+const multer = require('multer');
+const { v4: uuidv4 } = require('uuid');
+const bcrypt = require('bcryptjs');
+const path = require('path');
+const session = require('express-session');
+
+router.get('/add-news', async (req, res) => {
+    const successMessage = req.session.successMessage;
+    req.session.successMessage = null;
+    res.render('add-news', { session: req.session, successMessage });
+});
+
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, 'public/uploads');
+    },
+    filename: (req, file, cb) => {
+        const ext = path.extname(file.originalname);
+        const filename = file.fieldname + '-' + Date.now() + ext;
+        cb(null, filename);
+    }
+});
+
+const upload = multer({
+    storage: storage,
+    fileFilter: (req, file, cb) => {
+        const filetypes = /jpeg|jpg|png/;
+        const mimetype = filetypes.test(file.mimetype);
+        const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
+        if (mimetype && extname) {
+            return cb(null, true);
+        } else {
+            cb('Error: Images only!');
+        }
+    }
+});
+
+router.post('/add-news', upload.single('poster'), async (req, res) => {
+    const { title, category, description } = req.body;
+    const poster = req.file.filename;
+
+    try {
+        const count = await News.countDocuments();
+        const postId = `post${count + 1}`;
+
+        const news = new News({ title, category, description, poster, postId });
+
+        await news.save();
+
+        console.log(news);
+
+        req.session.successMessage = 'Новость добавлена в базу данных!';
+        res.redirect(`/news/${postId}`);
+    } catch (err) {
+        res.send(err);
+    }
+});
+
+module.exports = router;
+
+
+////////////////////////   alllnewsRoutes.js
+
+const express = require('express');
+const router = express.Router();
+const News = require('../models/newsModel');
+
+router.get('/', async (req, res) => {
+    try {
+        const news = await News.find({}).sort({ createAt: -1 });
+        res.render('allnews', { news, session: req.session });
+    } catch (err) {
+        res.redirect('/');
+    }
+});
+module.exports = router;
+// module.exports = router;
+
+
+
+
+///////////////////////// dashboardRoutes.js
+
+
+const express = require('express');
+const router = express.Router();
+const authMiddleware = require('../middlewares/authMiddleware');
+const UserDetails = require('../models/UserDetails');
+const User = require('../models/users');
+const multer = require('multer');
+const path = require('path');
+const { escape } = require('querystring');
+const fs = require('fs');
+
+function checkAuth(req, res, next) {
+    if (!req.session.user || (req.session.user.role !== 'admin' && req.session.user.role !== 'user')) {
+        return res.redirect('/login');
+    }
+    next();
+}
+
+router.get('/', (req, res) => {
+    res.render('dashboard', { session: req.session });
+});
+
+router.get('/user-data', checkAuth, async (req, res) => {
+    let userDetails = await UserDetails.findOne({ user: req.session.user._id });
+    if (!userDetails) {
+        userDetails = new UserDetails({
+            user: req.session.user._id,
+            nickname: '',
+            about: '',
+            avatarUrl: ''
+        });
+        await userDetails.save();
+    }
+    res.render('userDataForm', { session: req.session, userDetails: userDetails });
+});
+
+router.get('/profile/:id', checkAuth, async (req, res) => {
+    const userDetails = await UserDetails.findOne({ user: req.params.id }).populate('user');
+    if (!userDetails) {
+        return res.redirect('/dashboard');
+    }
+    res.render('userProfile', { session: req.session, userDetails });
+});
+
+router.get('/edit-news', (req, res) => {
+    res.render('edit-news');
+});
+
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, 'public/img/avatars');
+    },
+    filename: (req, file, cb) => {
+        const ext = path.extname(file.originalname);
+        const filename = file.fieldname + '-' + Date.now() + ext;
+        cb(null, filename);
+    }
+});
+
+const upload = multer({
+    storage: storage,
+    fileFilter: (req, file, cb) => {
+        const filetypes = /jpeg|jpg|png/;
+        const mimetype = filetypes.test(file.mimetype);
+        const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
+        if (mimetype && extname) {
+            return cb(null, true);
+        } else {
+            cb('Error: Images only!');
+        }
+    }
+}).single('avatar');
+
+router.post('/user-data', checkAuth, async (req, res) => {
+    upload(req, res, async (err) => {
+        if (err) {
+            return res.render('userDataForm', { session: req.session, error: err });
+        }
+        let userDetails;
+
+        userDetails = await UserDetails.findOne({ user: req.session.user._id });
+
+        if (userDetails) {
+            userDetails.nickname = req.body.nickname;
+            userDetails.about = req.body.about;
+
+            if (req.file) {
+                const oldAvatarPath = userDetails.avatarUrl ? path.join(__dirname, '..', 'public', userDetails.avatarUrl) : null;
+                userDetails.avatarUrl = '/img/avatars/' + req.file.filename;
+
+                if (oldAvatarPath && fs.existsSync(oldAvatarPath)) {
+                    fs.unlinkSync(oldAvatarPath);
+                }
+            }
+
+            await userDetails.save();
+        } else {
+            userDetails = new UserDetails({
+                user: req.body.user,
+                nickname: req.body.nickname,
+                about: req.body.about,
+                avatarUrl: req.file ? '/img/avatars/' + req.file.filename : null,
+                user: req.session.user._id,
+            });
+            await userDetails.save();
+        }
+
+        res.redirect('/dashboard');
+    });
+});
+
+router.post('/profile/:id/delete-avatar', async (req, res) => {
+    const userDetails = await UserDetails.findOne({ user: req.params.id });
+    if (!userDetails) {
+        return res.redirect('/dashboard');
+    }
+    if (userDetails.avatarUrl) {
+        const filePath = path.join(__dirname, '..', 'public', userDetails.avatarUrl);
+    }
+    userDetails.avatarUrl = null;
+    await userDetails.save();
+    res.redirect(`/dashboard/profile/${req.params.id}`);
+});
+
+module.exports = router;
+
+
+
+
+
+
+//////////////////////////////  deletteRoutes.js
+
+const express = require('express');
+const router = express.Router();
+const News = require('../models/newsModel');
+router.post('/delete/:id', async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const news = await News.findByIdAndDelete(id);
+        if (!news) {
+            return res.redirect('/editall');
+        }
+        res.redirect('/editall');
+    } catch (err) {
+        res.redirect('/editall');
+    }
+});
+module.exports = router;
+
+
+/////////////////////////    ediaallRoutes.js
+
+const express = require('express');
+const router = express.Router();
+const News = require('../models/newsModel');
+
+router.get('/', async (req, res) => {
+    try {
+        const news = await News.find();
+        res.render('edit', { news, session: req.session });
+    } catch (err) {
+        res.redirect('/allnews');
+    }
+});
+
+module.exports = router;
+
+
+
+////////////////////////   editRoutes.js
+
+
+// Импорт модуля express, который используется для создания серверных приложений
+const express = require('express');
+
+// Создание экземпляра маршрутизатора, который будет обрабатывать маршруты
+const router = express.Router();
+
+const News = require('../models/newsModel');
+const multer = require('multer');
+const { v4: uuidv4 } = require('uuid');
+const path = require('path');
+router.get('/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const news = await News.findById(id);
+    res.render('editnews', { news, session: req.session });
+  } catch (err) {
+    res.redirect('/allnews');
+  }
+});
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'public/uploads');
+  },
+ filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    const filename = file.fieldname + '-' + Date.now() + ext;
+    cb(null, filename);
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  fileFilter: (req, file, cb) => {
+    const filetypes = /jpeg|jpg|png/;
+    const mimetype = filetypes.test(file.mimetype);
+    const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
+    if (mimetype && extname) {
+      return cb(null, true);
+    } else {
+     cb('Error: Images only!');
+    }
+  }
+});
+
+router.post('/:id', upload.single('poster'), async (req, res) => {
+  const { id } = req.params;
+  const { title, category, description } = req.body;
+
+  try {
+    const news = await News.findById(id);
+
+    if (!news) {
+      return res.redirect('/allnews');
+    }
+
+    news.title = title;
+    news.category = category;
+    news.description = description;
+
+    if (req.file) {
+     news.poster = req.file.filename;
+    }
+
+    await news.save();
+    res.redirect(`/allnews`);
+  } catch (err) {
+    res.redirect('/allnews');
+  }
+});
+
+module.exports = router;
+
+
+
+//////////////////// indexRoutes.js
+
+const express = require('express');
+const router = express.Router();
+const News = require('../models/newsModel');
+
+router.get('/', async (req, res) => {
+  try {
+    const news = await News.find({});
+    console.log(news); 
+    res.render('index', { news, session: req.session });
+  } catch (err) {
+    res.redirect('/');
+  }
+});
+
+
+router.get('/news/:postId', async (req, res) => {
+  const { postId } = req.params;
+  try {
+    const item = await News.findOne({ postId });
+    res.render('news', { item, session: req.session });
+  } catch (err) {
+    res.redirect('/');
+  }
+});
+
+module.exports = router;
+
+
+
+//////////////////// loginRoutes.js
+
+const express = require('express');
+const router = express.Router();
+const bcrypt = require('bcryptjs');
+const loginController = require('../controllers/loginController');
+
+router.get('/', (req, res) => {
+  res.render('login');
+});
+
+router.post('/', loginController.login);
+
+module.exports = router;
+
+
+////////////////////   logoutRoutes.js
+
+const express = require('express');
+const router = express.Router();
+const logoutController = require('../controllers/logoutController');
+
+router.get('/', logoutController.logout);
+
+module.exports = router;
+
+
+
+//////////////////  registerRoutes.js
+
+const express = require('express');
+const router = express.Router();
+const registerController = require('../controllers/registerController');
+
+router.get('/', (req, res) => {
+    res.render('register');
+});
+
+router.post('/', registerController.register);
+
+module.exports = router;
+
+
+/////////////// routes.js
+
+
+
+const express = require('express');
+const router = express.Router();
+
+const dashboardRoutes = require('./dashboardRoutes');
+const indexRoutes = require('./indexRoutes');
+const loginRoutes = require('./loginRoutes');
+const logoutRoutes = require('./logoutRoutes');
+const registerRoutes = require('./registerRoutes');
+const addNewsRoutes = require('./addNewsRoutes');
+const allnewsRoutes = require('./alllnewsRoutes');
+const editRoutes = require('./editRoutes');
+const editAllroutes = require('./ediaallRoutes');
+const deleteRoutes = require('./deletteRoutes');
+
+router.use('/', indexRoutes);
+router.use('/dashboard', dashboardRoutes);
+router.use('/login', loginRoutes);
+router.use('/logout', logoutRoutes);
+router.use('/register', registerRoutes);
+router.use('/dashboard', addNewsRoutes);
+router.use('/allnews', allnewsRoutes);
+router.use('/edit', editRoutes);
+router.use('/editall', editAllroutes);
+router.use('/', deleteRoutes);
+
+module.exports = router;
+
+
+
+
+
+
+
+
+
+

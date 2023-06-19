@@ -1,0 +1,27 @@
+npm init
+
+npm install express mongoose
+
+npm i -D nodemon
+
+подключения всех библиотек 
+npm install bcryptjs connect-mongo connect-mongodb-session dotenv ejs express express-session lodash mongodb mongoose multer sweetalert --save
+
+js
+
+const bcrypt = require('bcryptjs');
+const connectMongo = require('connect-mongo');
+const connectMongoDBSession = require('connect-mongodb-session');
+const dotenv = require('dotenv');
+const ejs = require('ejs');
+const express = require('express');
+const session = require('express-session');
+const lodash = require('lodash');
+const mongodb = require('mongodb');
+const mongoose = require('mongoose');
+const multer = require('multer');
+const sweetalert = require('sweetalert');
+
+git clone https://github.com/dgtuser/web.git
+
+npm install mixitup@3.3.1 --save

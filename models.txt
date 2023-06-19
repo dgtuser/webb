@@ -1,0 +1,65 @@
+//////////// newsModel.js
+
+const mongoose = require('mongoose');
+
+const newsSchema = new mongoose.Schema({
+    title: { type: String, required: true }, 
+    category: { type: String, required: true }, 
+    description: { type: String, required: true }, 
+    poster: { type: String, required: true }, 
+    createdAt: { type: Date, default: Date.now }, 
+    postId: { type: String, required: true, unique: true } 
+});
+
+const News = mongoose.model('News', newsSchema);
+
+module.exports = News; 
+
+
+//////// user.js
+
+const mongoose = require('mongoose');
+const Schema = mongoose.Schema;
+
+const userSchema = new Schema({
+    email: { type: String, required: true},
+    password: {type: String, required: true},
+    role: { type: String, enum: ['admin', 'user'], default: 'user' },
+});
+
+module.exports = mongoose.model('user', userSchema);
+
+
+
+
+/////////// UserDetails.js
+
+const mongoose = require('mongoose');
+const Schema = mongoose.Schema;
+
+const userDetailsSchema = new Schema({
+    nickname: { type: String }, 
+    avatarUrl: { type: String }, 
+    about: { type: String }, 
+    user: { type: Schema.Types.ObjectId, ref: 'users' } 
+});
+
+module.exports = mongoose.model('UserDetails', userDetailsSchema, 'UserDetails');
+
+
+////////// users.js
+
+const mongoose = require('mongoose');
+const UserDetails = require('./UserDetails');
+const Schema = mongoose.Schema;
+
+const userSchema = new Schema({
+    email: { type: String, required: true }, 
+    password: { type: String, required: true }, 
+    role: { type: String, enum: ['admin', 'user'], default: 'user' }, 
+    userDetails: { type: Schema.Types.ObjectId, ref: 'UserDetails' } 
+});
+
+module.exports = mongoose.model('users', userSchema);
+
+
